@@ -1,19 +1,18 @@
 <?php
 
+use App\Http\Controllers\Api\V1\AccountController;
 use Illuminate\Support\Facades\Route;
 
-Route::get('/users', function () {
-    return response()->json([
-        'success' => true,
-        'data' => [
-            [
-                'id' => 1,
-                'name' => 'Abhishek'
-            ],
-            [
-                'id' => 2,
-                'name' => 'Rahul'
-            ]
-        ]
-    ]);
+Route::prefix('v1')->group(function () {
+    Route::middleware('customer.auth')->group(function () {
+        Route::get(
+            '/account',
+            [AccountController::class, 'show']
+        )->name('account.show');
+
+        Route::patch(
+            '/account',
+            [AccountController::class, 'update']
+        )->name('account.update');
+    });
 });
