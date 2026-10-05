@@ -5,10 +5,12 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
+use Laravel\Sanctum\HasApiTokens;
+use Override;
 
 class AdminUser extends Authenticatable
 {
-    use HasFactory, SoftDeletes;
+    use HasApiTokens, HasFactory, SoftDeletes;
 
     protected $table = 'admin_users';
 
@@ -37,6 +39,15 @@ class AdminUser extends Authenticatable
         'updated_at'    => 'datetime',
         'deleted_at'    => 'datetime',
     ];
+
+    /**
+     * Password Column used by authentication.
+     */
+    #[Override]
+    public function getAuthPassword()
+    {
+        return $this->password_hash;
+    }
 
     /**
      * Admin roles.

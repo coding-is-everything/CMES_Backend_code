@@ -1,7 +1,10 @@
 <?php
 
 use App\Http\Controllers\Api\V1\AccountController;
+use App\Http\Controllers\Api\V1\Admin\AdminAuthController;
 use App\Http\Controllers\Api\V1\Admin\AdminUserController;
+use App\Http\Controllers\Api\V1\AuthController;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->group(function () {
@@ -17,6 +20,26 @@ Route::prefix('v1')->group(function () {
         )->name('account.update');
     });
 });
+
+Route::prefix('v1')->group(function () {
+    Route::post('/auth/login', [AuthController::class, 'login']);
+});
+
+Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
+    return response()->json([
+        'success' => true,
+        'data'    => $request->user(),
+    ]);
+});
+
+Route::prefix('v1/admin')
+    ->group(function () {
+        Route::post(
+            '/auth/login',
+            [AdminAuthController::class, 'login']
+        )->middleware('throttle:admin-login')
+            ->name('admin.auth.login');
+    });
 
 Route::prefix('v1/admin')
     ->middleware([
