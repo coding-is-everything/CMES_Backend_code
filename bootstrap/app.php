@@ -1,5 +1,7 @@
 <?php
 
+use App\Http\Middleware\AdminAuthenticate;
+use App\Http\Middleware\AdminPermission;
 use App\Http\Middleware\CustomerAuthenticate;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -21,6 +23,10 @@ return Application::configure(
         $middleware->alias([
             'customer.auth' =>
             CustomerAuthenticate::class,
+            'admin.auth' =>
+            AdminAuthenticate::class,
+            'admin.permission' =>
+            AdminPermission::class,
         ]);
 
     })
