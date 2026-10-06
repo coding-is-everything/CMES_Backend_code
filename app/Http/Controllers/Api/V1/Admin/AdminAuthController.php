@@ -302,6 +302,62 @@ class AdminAuthController extends Controller
     }
 
     /**
+     * ADM-AUTH-010
+     *
+     * Revoke one of the signed-in admin's sessions.
+     */
+    public function revokeSession(Request $request, string $sessionId): JsonResponse
+    {
+        try {
+            $admin = $request->user();
+
+            if (! $admin instanceof AdminUser) {
+                return response()->json([
+                    'success' => false,
+                    'message' => self::UNAUTHENTICATED_MESSAGE,
+                    'data'    => null,
+                ], 401);
+            }
+
+            if (! $admin->isActive()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => self::INACTIVE_MESSAGE,
+                    'data'    => null,
+                ], 403);
+            }
+
+            $sessionId = strtolower($sessionId);
+            $isCurrent = $this->adminAuthService->isCurrentSession($admin, $sessionId);
+
+            if (! $this->adminAuthService->revokeSession($admin, $sessionId)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Session not found.',
+                    'data'    => null,
+                ], 404);
+            }
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Session revoked successfully.',
+                'data'    => [
+                    'session_id'      => $sessionId,
+                    'revoked_current' => $isCurrent,
+                ],
+            ], 200);
+        } catch (Throwable $exception) {
+            report($exception);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Unable to revoke admin session.',
+                'data'    => null,
+            ], 500);
+        }
+    }
+
+    /**
      * ADM-AUTH-005
      *
      * Current admin with roles and effective permissions.

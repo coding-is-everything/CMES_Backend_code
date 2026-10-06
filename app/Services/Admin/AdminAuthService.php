@@ -674,6 +674,37 @@ class AdminAuthService
     }
 
     /**
+     * Revoke one of the admin's sessions (access + refresh token pair).
+     *
+     * Only tokens that belong to this admin and follow the admin naming
+     * convention can match, so another admin's session id is simply "not found".
+     *
+     * @return bool false when the admin has no such session.
+     */
+    public function revokeSession(AdminUser $admin, string $sessionId): bool
+    {
+        $revoked = $admin->tokens()
+            ->where(function ($query) use ($sessionId) {
+                $query->where('name', 'like', 'admin-access:%:' . $sessionId)
+                    ->orWhere('name', 'like', 'admin-refresh:%:' . $sessionId);
+            })
+            ->delete();
+
+        return $revoked > 0;
+    }
+
+    /**
+     * Whether the given session id belongs to the token making the request.
+     */
+    public function isCurrentSession(AdminUser $admin, string $sessionId): bool
+    {
+        $currentToken = $admin->currentAccessToken();
+
+        return $currentToken
+            && $this->extractSessionId($currentToken->name) === $sessionId;
+    }
+
+    /**
      * Change the password of a signed-in admin.
      *
      * The session making the call stays signed in; every other session

@@ -460,7 +460,7 @@ Rules:
 
 - The **current session is first**; the rest are ordered by `last_used_at` (newest first, never-used last).
 - A session is listed while at least one of its tokens is unexpired — an idle device whose access token lapsed but whose refresh token is still valid **is** listed. Fully expired sessions are omitted.
-- No token values or database ids are ever returned. `session_id` is only for display/keying; **there is no per-session revoke endpoint yet** — use `POST /admin/auth/logout-all` (§2.4) to sign everything out, or `change-password` (§2.8) to sign out all *other* devices.
+- No token values or database ids are ever returned. `session_id` identifies the session for display and for `DELETE /admin/auth/sessions/{sessionId}` (§2.10). To sign out everything use `POST /admin/auth/logout-all` (§2.4); `change-password` (§2.8) signs out all *other* devices.
 - IP address and user agent are not tracked, so they aren't available.
 - The `/security/sessions` screen can show "this device" using `is_current`.
 
@@ -473,6 +473,47 @@ Rules:
 | 403 | `Administrator account is not active.` | admin was locked/inactivated after the token was issued |
 | 405 | — | any method other than `GET` |
 | 500 | `Unable to retrieve admin sessions.` | server error |
+
+### 2.10 `DELETE /admin/auth/sessions/{sessionId}`
+
+Endpoint ID `ADM-AUTH-010` · Next.js screen `/security/sessions` · Permission slug `auth.sessions.revoke`.
+
+Requires `Authorization: Bearer <access_token>`. No body.
+
+Revokes one of the signed-in admin's own sessions — both its access and refresh token — so that device is signed out immediately: its next call returns 401 and it can no longer refresh. Take `sessionId` from `session_id` in §2.9.
+
+| Path param | Rules |
+|------------|-------|
+| `sessionId` | UUID (case-insensitive; returned lower-cased). A value that isn't a UUID doesn't match the route and returns a plain 404 |
+
+**200**
+
+```json
+{
+  "success": true,
+  "message": "Session revoked successfully.",
+  "data": {
+    "session_id": "550e8400-e29b-41d4-a716-446655440000",
+    "revoked_current": false
+  }
+}
+```
+
+`revoked_current` is `true` when the session you revoked is the one making the call. That is allowed and behaves exactly like `POST /admin/auth/logout`: your own tokens are now dead, so clear stored tokens and go to login. Other sessions are untouched.
+
+**Errors**
+
+| Code | Message | Cause |
+|------|---------|-------|
+| 404 | `Session not found.` | no such session for **this** admin — unknown, already revoked, or belongs to another admin (indistinguishable by design) |
+| 404 | (framework default body) | `sessionId` is not a UUID |
+| 401 | `Unauthenticated.` | missing, invalid, expired or revoked access token (Laravel default body, no `success` envelope) |
+| 401 | `Unauthenticated admin session.` | token belongs to a non-admin user |
+| 403 | `Administrator account is not active.` | admin was locked/inactivated after the token was issued |
+| 405 | — | any method other than `DELETE` on this path |
+| 500 | `Unable to revoke admin session.` | server error |
+
+Frontend: after a 200 with `revoked_current: false`, remove that row from the list (or re-fetch §2.9). On a 404, the session is already gone — just refresh the list.
 
 ---
 
@@ -649,6 +690,12 @@ export const adminChangePassword = (token: string, p: {
 
 export const adminSessions = (token: string) =>
   api<ApiSuccess<AdminSession[]>>('/admin/auth/sessions', { token });
+
+export const adminRevokeSession = (token: string, sessionId: string) =>
+  api<ApiSuccess<{ session_id: string; revoked_current: boolean }>>(
+    `/admin/auth/sessions/${sessionId}`,
+    { method: 'DELETE', token },
+  );
 
 export const adminMe = (token: string) =>
   api<ApiSuccess<AdminMe>>('/admin/auth/me', { token });

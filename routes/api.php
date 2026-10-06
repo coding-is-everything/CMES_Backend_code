@@ -70,6 +70,13 @@ Route::prefix('v1/admin')
         )->middleware('auth:sanctum')
             ->name('admin.auth.sessions');
 
+        Route::delete(
+            '/auth/sessions/{sessionId}',
+            [AdminAuthController::class, 'revokeSession']
+        )->whereUuid('sessionId')
+            ->middleware('auth:sanctum')
+            ->name('admin.auth.sessions.revoke');
+
         Route::get(
             '/auth/me',
             [AdminAuthController::class, 'me']
