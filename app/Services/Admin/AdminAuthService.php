@@ -95,11 +95,13 @@ class AdminAuthService
              * Remove any existing token pair for the same
              * device name.
              */
+            $escapedDevice = addcslashes($device, '%_\\');
+
             $admin->tokens()
-                ->whereIn('name', [
-                    'admin-access:' . $device,
-                    'admin-refresh:' . $device,
-                ])
+                ->where(function ($query) use ($escapedDevice) {
+                    $query->where('name', 'like', 'admin-access:' . $escapedDevice . ':%')
+                        ->orWhere('name', 'like', 'admin-refresh:' . $escapedDevice . ':%');
+                })
                 ->delete();
 
             /*
@@ -390,9 +392,8 @@ class AdminAuthService
             return 'admin-web';
         }
 
+        // Drop the "admin-refresh" / "admin-access" prefix and the session id.
         array_shift($parts);
-        array_shift($parts);
-
         array_pop($parts);
 
         return implode(':', $parts) ?: 'admin-web';
