@@ -47,14 +47,17 @@ class AdminRefreshTokenRequest extends FormRequest
 
     protected function prepareForValidation(): void
     {
-        $this->merge([
-            'refresh_token' => $this->refresh_token
-                ? trim($this->refresh_token)
-                : null,
+        $refreshToken = $this->input('refresh_token');
+        $deviceName   = $this->input('device_name');
 
-            'device_name'   => $this->device_name
-                ? trim($this->device_name)
-                : null,
+        $this->merge([
+            'refresh_token' => is_string($refreshToken)
+                ? (trim($refreshToken) ?: null)
+                : $refreshToken,
+
+            'device_name'   => is_string($deviceName)
+                ? (trim($deviceName) ?: null)
+                : $deviceName,
         ]);
     }
 }

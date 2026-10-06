@@ -52,12 +52,16 @@ class AdminAuthLoginTest extends TestCase
                 'message',
                 'data' => [
                     'admin' => ['id', 'admin_code', 'full_name', 'email', 'mobile_number', 'status', 'last_login_at', 'roles'],
-                    'token',
+                    'access_token',
+                    'refresh_token',
                     'token_type',
+                    'access_token_expires_at',
+                    'refresh_token_expires_at',
                 ],
             ]);
 
-        $this->assertNotEmpty($response->json('data.token'));
+        $this->assertNotEmpty($response->json('data.access_token'));
+        $this->assertNotEmpty($response->json('data.refresh_token'));
         $this->assertArrayNotHasKey('password_hash', $response->json('data.admin'));
     }
 
@@ -96,12 +100,16 @@ class AdminAuthLoginTest extends TestCase
         $admin->refresh();
         $this->assertNotNull($admin->last_login_at);
 
-        $this->assertDatabaseHas('personal_access_tokens', [
-            'tokenable_id'   => $admin->id,
-            'tokenable_type' => AdminUser::class,
-            'name'           => 'chrome-laptop',
-        ]);
-        $this->assertTrue($admin->tokens()->first()->can('admin'));
+        $access  = $admin->tokens()->where('name', 'like', 'admin-access:chrome-laptop:%')->first();
+        $refresh = $admin->tokens()->where('name', 'like', 'admin-refresh:chrome-laptop:%')->first();
+
+        $this->assertNotNull($access);
+        $this->assertNotNull($refresh);
+        $this->assertSame(AdminUser::class, $access->tokenable_type);
+        $this->assertTrue($access->can('admin:access'));
+        $this->assertFalse($access->can('admin:refresh'));
+        $this->assertTrue($refresh->can('admin:refresh'));
+        $this->assertFalse($refresh->can('admin:access'));
     }
 
     public function test_default_token_name_is_admin_web_when_no_device_name(): void
@@ -113,7 +121,8 @@ class AdminAuthLoginTest extends TestCase
             'password' => self::PASSWORD,
         ])->assertOk();
 
-        $this->assertSame('admin-web', $admin->tokens()->first()->name);
+        $this->assertSame(1, $admin->tokens()->where('name', 'like', 'admin-access:admin-web:%')->count());
+        $this->assertSame(1, $admin->tokens()->where('name', 'like', 'admin-refresh:admin-web:%')->count());
     }
 
     public function test_same_device_login_replaces_previous_token(): void
@@ -128,7 +137,10 @@ class AdminAuthLoginTest extends TestCase
         $this->postJson(self::URL, $payload)->assertOk();
         $this->postJson(self::URL, $payload)->assertOk();
 
-        $this->assertSame(1, $admin->tokens()->where('name', 'firefox')->count());
+        // One access + one refresh token; the first pair was replaced.
+        $this->assertSame(2, $admin->tokens()->count());
+        $this->assertSame(1, $admin->tokens()->where('name', 'like', 'admin-access:firefox:%')->count());
+        $this->assertSame(1, $admin->tokens()->where('name', 'like', 'admin-refresh:firefox:%')->count());
     }
 
     public function test_different_devices_keep_separate_tokens(): void
@@ -143,7 +155,8 @@ class AdminAuthLoginTest extends TestCase
             ])->assertOk();
         }
 
-        $this->assertSame(2, $admin->tokens()->count());
+        // Two devices x (access + refresh).
+        $this->assertSame(4, $admin->tokens()->count());
     }
 
     public function test_email_is_case_insensitive_and_trimmed(): void
@@ -163,7 +176,7 @@ class AdminAuthLoginTest extends TestCase
         $token = $this->postJson(self::URL, [
             'email'    => 'auth@example.com',
             'password' => self::PASSWORD,
-        ])->json('data.token');
+        ])->json('data.access_token');
 
         $this->withToken($token)
             ->getJson('/api/user')

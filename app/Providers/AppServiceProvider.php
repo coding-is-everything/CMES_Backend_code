@@ -30,6 +30,17 @@ class AppServiceProvider extends ServiceProvider
             );
         });
 
+        RateLimiter::for('admin-forgot-password', function (Request $request) {
+            $email = $request->input('email');
+
+            // A non-string email fails validation; don't let it break the limiter key.
+            return Limit::perMinute(5)
+                ->by(
+                    (is_string($email) ? strtolower(trim($email)) : '')
+                    . '|' . $request->ip()
+                );
+        });
+
         RateLimiter::for('admin-refresh', function (Request $request) {
             return Limit::perMinute(20)
             ->by(

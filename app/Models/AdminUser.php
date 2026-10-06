@@ -1,6 +1,7 @@
 <?php
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
@@ -60,6 +61,24 @@ class AdminUser extends Authenticatable
             'admin_user_id',
             'role_id'
         );
+    }
+
+    /**
+     * Distinct permissions granted through all of the admin's roles.
+     *
+     * @return Collection<int, Permission>
+     */
+    public function permissions(): Collection
+    {
+        return Permission::query()
+            ->select('permissions.*')
+            ->join('role_permissions as rp', 'rp.permission_id', '=', 'permissions.id')
+            ->join('admin_user_roles as aur', 'aur.role_id', '=', 'rp.role_id')
+            ->where('aur.admin_user_id', $this->id)
+            ->distinct()
+            ->orderBy('permissions.module_name')
+            ->orderBy('permissions.permission_code')
+            ->get();
     }
 
     /**
