@@ -39,6 +39,12 @@ Route::prefix('v1/admin')
             [AdminAuthController::class, 'login']
         )->middleware('throttle:admin-login')
             ->name('admin.auth.login');
+
+        Route::post(
+            '/auth/refresh',
+            [AdminAuthController::class, 'refresh']
+        )->middleware('throttle:admin-refresh')
+            ->name('admin.auth.refresh');
     });
 
 Route::prefix('v1/admin')
