@@ -41,6 +41,13 @@ class AppServiceProvider extends ServiceProvider
                 );
         });
 
+        // Limits current-password guessing from a stolen access token.
+        RateLimiter::for('admin-change-password', function (Request $request) {
+            return Limit::perMinute(5)->by(
+                'admin-change-password:' . ($request->user()?->getAuthIdentifier() ?? $request->ip())
+            );
+        });
+
         // Limits token guessing; keyed by IP because the token itself is the secret.
         RateLimiter::for('admin-reset-password', function (Request $request) {
             return Limit::perMinute(10)->by((string) $request->ip());

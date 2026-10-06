@@ -58,6 +58,25 @@ Route::prefix('v1/admin')
         )->middleware('throttle:admin-reset-password')
             ->name('admin.auth.reset-password');
 
+        Route::post(
+            '/auth/change-password',
+            [AdminAuthController::class, 'changePassword']
+        )->middleware(['auth:sanctum', 'throttle:admin-change-password'])
+            ->name('admin.auth.change-password');
+
+        Route::get(
+            '/auth/sessions',
+            [AdminAuthController::class, 'sessions']
+        )->middleware('auth:sanctum')
+            ->name('admin.auth.sessions');
+
+        Route::delete(
+            '/auth/sessions/{sessionId}',
+            [AdminAuthController::class, 'revokeSession']
+        )->whereUuid('sessionId')
+            ->middleware('auth:sanctum')
+            ->name('admin.auth.sessions.revoke');
+
         Route::get(
             '/auth/me',
             [AdminAuthController::class, 'me']
