@@ -220,6 +220,103 @@ Frontend: on 200, clear stored tokens and redirect to login. Any other device wi
 
 > The `auth.logout_all` slug is informational for now: access is granted to any authenticated admin and no permission check is enforced.
 
+### 2.5 `GET /admin/auth/me`
+
+Endpoint ID `ADM-AUTH-005` · Next.js screen `/profile` · Permission slug `auth.me`.
+
+Requires `Authorization: Bearer <access_token>`. No body or query parameters.
+
+Returns the signed-in admin with their roles and **effective permissions** (the distinct union of permissions across all of the admin's roles). Always read from the database, so role/permission changes show up on the next call without re-login.
+
+```ts
+export interface AdminPermission {
+  permission_code: string; // e.g. "admin_users.view"
+  permission_name: string;
+  module_name: string;
+}
+
+export interface AdminMe { admin: AdminAuthUser; permissions: AdminPermission[] }
+```
+
+**200**
+
+```json
+{
+  "success": true,
+  "message": "Admin profile retrieved successfully.",
+  "data": {
+    "admin": {
+      "id": 1, "admin_code": "ADM0001", "full_name": "Super Admin",
+      "email": "super@example.com", "mobile_number": "9999999999",
+      "status": "ACTIVE", "last_login_at": "2026-10-06T10:00:00.000000Z",
+      "roles": [{ "id": 1, "role_code": "SUPER_ADMIN", "role_name": "Super Admin" }]
+    },
+    "permissions": [
+      { "permission_code": "admin_users.view", "permission_name": "View Admin Users", "module_name": "Admin Users" }
+    ]
+  }
+}
+```
+
+`roles` and `permissions` are empty arrays when none are assigned. Permissions are sorted by `module_name`, then `permission_code`. Password hashes and tokens are never returned.
+
+**Errors**
+
+| Code | Message | Cause |
+|------|---------|-------|
+| 401 | `Unauthenticated.` | missing, invalid, expired or revoked access token (Laravel default body, no `success` envelope) |
+| 401 | `Unauthenticated admin session.` | token belongs to a non-admin user |
+| 403 | `Administrator account is not active.` | admin was locked/inactivated after the token was issued |
+| 405 | — | any method other than `GET` |
+| 500 | `Unable to retrieve admin profile.` | server error |
+
+Frontend: call this after login/refresh (and on app load) to drive route guards and show/hide UI by `permission_code`. On 401 try a refresh once; on 403 clear tokens and show the account-status message.
+
+### 2.6 `POST /admin/auth/forgot-password`
+
+Endpoint ID `ADM-AUTH-006` · Next.js screen `/forgot-password` · **Public** (no token).
+
+Rate limit: 5 requests/min per email+IP.
+
+Starts a password reset: emails the admin a single-use link that expires after 60 minutes (`ADMIN_PASSWORD_RESET_TTL`). The link is `{ADMIN_FRONTEND_URL}/reset-password?token=<64 chars>&email=<email>` — the frontend `/reset-password` page reads both query params.
+
+**The response is identical whether or not the email belongs to an admin** (anti-enumeration). Unknown, locked, inactive and deleted accounts receive the same 200 but no email. Never tell the user whether the address exists.
+
+**Body**
+
+| Field | Type | Rules |
+|-------|------|-------|
+| `email` | string | required, valid email, max 150 (trimmed + lower-cased server-side) |
+
+**200**
+
+```json
+{
+  "success": true,
+  "message": "If the email address belongs to an administrator account, a password reset link has been sent.",
+  "data": null
+}
+```
+
+Behaviour worth knowing:
+
+- Requesting again within 60 s of the last email (`ADMIN_PASSWORD_RESET_COOLDOWN`) returns the same 200 but sends nothing. Disable the "Resend" button for ~60 s.
+- A new request after the cooldown invalidates the previous link — only the newest email works.
+- Requesting a reset does **not** change the password or sign out existing sessions.
+- Email delivery failures are logged server-side and still return 200.
+
+**422 messages** (under `errors.email[0]`)
+
+| Message | Cause |
+|---------|-------|
+| `Email address is required.` | missing/blank |
+| `Please enter a valid email address.` | not a valid email or not a string |
+| `Email address may not exceed 150 characters.` | over 150 chars |
+
+**429** — route throttle exceeded.
+
+> **Not built yet:** the endpoint that consumes the emailed token and sets the new password (`/admin/auth/reset-password`). Until it exists, the link's landing page has nothing to submit to.
+
 ---
 
 ## 3. Admin users
@@ -370,6 +467,15 @@ export const adminRefresh = (refresh_token: string) =>
 export const adminLogout = (token: string) =>
   api<ApiSuccess<null>>('/admin/auth/logout', { method: 'POST', token });
 
+export const adminForgotPassword = (email: string) =>
+  api<ApiSuccess<null>>('/admin/auth/forgot-password', {
+    method: 'POST',
+    body: JSON.stringify({ email }),
+  });
+
+export const adminMe = (token: string) =>
+  api<ApiSuccess<AdminMe>>('/admin/auth/me', { token });
+
 export const adminLogoutAll = (token: string) =>
   api<ApiSuccess<{ revoked_tokens: number }>>('/admin/auth/logout-all', { method: 'POST', token });
 ```
@@ -388,4 +494,4 @@ Map `ApiError.errors` onto form fields (`errors.email[0]`, `errors.password[0]`,
 
 ### 6.5 Permissions
 
-Roles are returned on the admin object (`roles[].role_code`). Use them only to show/hide UI — the server enforces permissions (403) regardless.
+Roles are returned on the admin object (`roles[].role_code`), and effective permissions by `GET /admin/auth/me` (`permissions[].permission_code`). Use them only to show/hide UI — the server enforces permissions (403) regardless.

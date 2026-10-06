@@ -47,6 +47,18 @@ Route::prefix('v1/admin')
             ->name('admin.auth.refresh');
 
         Route::post(
+            '/auth/forgot-password',
+            [AdminAuthController::class, 'forgotPassword']
+        )->middleware('throttle:admin-forgot-password')
+            ->name('admin.auth.forgot-password');
+
+        Route::get(
+            '/auth/me',
+            [AdminAuthController::class, 'me']
+        )->middleware('auth:sanctum')
+            ->name('admin.auth.me');
+
+        Route::post(
             '/auth/logout',
             [AdminAuthController::class, 'logout']
         )->middleware('auth:sanctum')

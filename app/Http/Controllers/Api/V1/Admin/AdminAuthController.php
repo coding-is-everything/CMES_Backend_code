@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Admin\AdminForgotPasswordRequest;
 use App\Http\Requests\Admin\AdminLoginRequest;
 use App\Http\Requests\Admin\AdminRefreshTokenRequest;
 use App\Http\Resources\Admin\AdminAuthResource;
@@ -15,6 +16,8 @@ use Throwable;
 
 class AdminAuthController extends Controller
 {
+    private const UNAUTHENTICATED_MESSAGE = 'Unauthenticated admin session.';
+
     public function __construct(
         protected AdminAuthService $adminAuthService
     ) {
@@ -143,6 +146,85 @@ class AdminAuthController extends Controller
     }
 
     /**
+     * ADM-AUTH-006
+     *
+     * Request a password reset link. The response is identical whether or
+     * not the e-mail belongs to an admin, to prevent account enumeration.
+     */
+    public function forgotPassword(
+        AdminForgotPasswordRequest $request
+    ): JsonResponse {
+        try {
+            $this->adminAuthService->requestPasswordReset(
+                email: $request->string('email')->toString(),
+                ipAddress: $request->ip()
+            );
+        } catch (Throwable $exception) {
+            // Mail/DB failures are logged but never revealed to the caller.
+            report($exception);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'If the email address belongs to an administrator account, a password reset link has been sent.',
+            'data'    => null,
+        ], 200);
+    }
+
+    /**
+     * ADM-AUTH-005
+     *
+     * Current admin with roles and effective permissions.
+     */
+    public function me(Request $request): JsonResponse
+    {
+        try {
+            $admin = $request->user();
+
+            if (! $admin instanceof AdminUser) {
+                return response()->json([
+                    'success' => false,
+                    'message' => self::UNAUTHENTICATED_MESSAGE,
+                    'data'    => null,
+                ], 401);
+            }
+
+            if (! $admin->isActive()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Administrator account is not active.',
+                    'data'    => null,
+                ], 403);
+            }
+
+            $admin->load('roles:id,role_name,role_code');
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Admin profile retrieved successfully.',
+                'data'    => [
+                    'admin'       => new AdminAuthResource($admin),
+                    'permissions' => $admin->permissions()
+                        ->map(fn ($permission) => [
+                            'permission_code' => $permission->permission_code,
+                            'permission_name' => $permission->permission_name,
+                            'module_name'     => $permission->module_name,
+                        ])
+                        ->values(),
+                ],
+            ], 200);
+        } catch (Throwable $exception) {
+            report($exception);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Unable to retrieve admin profile.',
+                'data'    => null,
+            ], 500);
+        }
+    }
+
+    /**
      * Logout Current Admin Session
      */
     public function logout(Request $request): JsonResponse
@@ -157,7 +239,7 @@ class AdminAuthController extends Controller
             if (! $admin instanceof AdminUser) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Unauthenticated admin session.',
+                    'message' => self::UNAUTHENTICATED_MESSAGE,
                     'data'    => null,
                 ], 401);
             }
@@ -193,7 +275,7 @@ class AdminAuthController extends Controller
             if (! $admin instanceof AdminUser) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Unauthenticated admin session.',
+                    'message' => self::UNAUTHENTICATED_MESSAGE,
                     'data'    => null,
                 ], 401);
             }

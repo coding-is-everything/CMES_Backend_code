@@ -23,6 +23,16 @@ class Role extends Model
         'created_at' => 'datetime',
     ];
 
+    public function permissions(): BelongsToMany
+    {
+        return $this->belongsToMany(
+            Permission::class,
+            'role_permissions',
+            'role_id',
+            'permission_id'
+        );
+    }
+
     public function adminUsers(): BelongsToMany
     {
         return $this->belongsToMany(

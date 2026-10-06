@@ -1,9 +1,11 @@
 <?php
 namespace App\Services\Admin;
 
+use App\Mail\AdminPasswordResetMail;
 use App\Models\AdminUser;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
@@ -431,6 +433,68 @@ class AdminAuthService
                     ->delete();
             }
         });
+    }
+
+    /**
+     * Start a password reset for the given e-mail address.
+     *
+     * Deliberately returns nothing and never throws for unknown, locked,
+     * inactive or deleted accounts, so callers cannot enumerate admins.
+     */
+    public function requestPasswordReset(
+        string $email,
+        ?string $ipAddress = null
+    ): void {
+        $admin = AdminUser::query()
+            ->where('email', strtolower(trim($email)))
+            ->whereNull('deleted_at')
+            ->first();
+
+        if (! $admin || ! $admin->isActive()) {
+            return;
+        }
+
+        $cooldown = (int) config('admin.password_reset.cooldown', 60);
+
+        $recentlyRequested = DB::table('admin_password_resets')
+            ->where('admin_user_id', $admin->id)
+            ->whereNull('used_at')
+            ->where('created_at', '>', now()->subSeconds($cooldown))
+            ->exists();
+
+        if ($recentlyRequested) {
+            return;
+        }
+
+        $ttl      = (int) config('admin.password_reset.ttl', 60);
+        $rawToken = Str::random(64);
+
+        DB::transaction(function () use ($admin, $rawToken, $ttl, $ipAddress) {
+            // Only the newest link stays valid.
+            DB::table('admin_password_resets')
+                ->where('admin_user_id', $admin->id)
+                ->whereNull('used_at')
+                ->delete();
+
+            DB::table('admin_password_resets')->insert([
+                'admin_user_id' => $admin->id,
+                'token_hash'    => hash('sha256', $rawToken),
+                'ip_address'    => $ipAddress,
+                'expires_at'    => now()->addMinutes($ttl),
+                'created_at'    => now(),
+            ]);
+        });
+
+        $resetUrl = rtrim((string) config('admin.password_reset.frontend_url'), '/')
+            . config('admin.password_reset.path', '/reset-password')
+            . '?' . http_build_query([
+                'token' => $rawToken,
+                'email' => $admin->email,
+            ]);
+
+        Mail::to($admin->email)->send(
+            new AdminPasswordResetMail($admin, $resetUrl, $ttl)
+        );
     }
 
     /**
