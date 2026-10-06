@@ -47,6 +47,12 @@ Route::prefix('v1/admin')
             ->name('admin.auth.refresh');
 
         Route::post(
+            '/auth/register',
+            [AdminAuthController::class, 'register']
+        )->middleware('throttle:admin-register')
+            ->name('admin.auth.register');
+
+        Route::post(
             '/auth/forgot-password',
             [AdminAuthController::class, 'forgotPassword']
         )->middleware('throttle:admin-forgot-password')

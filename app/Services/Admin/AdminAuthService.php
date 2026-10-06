@@ -3,7 +3,11 @@ namespace App\Services\Admin;
 
 use App\Mail\AdminPasswordResetMail;
 use App\Models\AdminUser;
+use App\Models\Role;
+use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Mail;
@@ -434,6 +438,116 @@ class AdminAuthService
                     ->delete();
             }
         });
+    }
+
+    /**
+     * Whether first-administrator registration is still available.
+     *
+     * Open only while no (non-deleted) administrator exists.
+     */
+    public function registrationOpen(): bool
+    {
+        return ! AdminUser::query()->exists();
+    }
+
+    /**
+     * Register the very first administrator.
+     *
+     * Allowed only while no administrator exists, and only with the
+     * configured setup key (when one is configured). The new admin is
+     * ACTIVE and receives the SUPER_ADMIN role with every permission.
+     * No tokens are issued - the admin signs in through the normal login.
+     *
+     * @param array{full_name: string, email: string, password: string, mobile_number?: ?string} $data
+     *
+     * @throws AuthorizationException when registration is closed or the key is wrong
+     * @throws ValidationException    when the email belonged to a deleted admin
+     * @throws LockTimeoutException   when another registration is in flight
+     */
+    public function registerFirstAdmin(array $data, ?string $setupKey = null): AdminUser
+    {
+        // Serialises concurrent attempts: an empty table gives row locks nothing to hold.
+        return Cache::lock('admin-first-registration', 10)->block(5, function () use ($data, $setupKey) {
+            $configuredKey = config('admin.registration.setup_key');
+
+            if (
+                ! $this->registrationOpen() ||
+                ($configuredKey && ! hash_equals((string) $configuredKey, (string) $setupKey))
+            ) {
+                throw new AuthorizationException(
+                    'Administrator registration is not available.'
+                );
+            }
+
+            $email = strtolower(trim($data['email']));
+
+            if (AdminUser::withTrashed()->where('email', $email)->exists()) {
+                throw ValidationException::withMessages([
+                    'email' => [
+                        'Email address is already registered.',
+                    ],
+                ]);
+            }
+
+            return DB::transaction(function () use ($data, $email) {
+                $admin = AdminUser::create([
+                    'admin_code'    => $this->nextAdminCode(),
+                    'full_name'     => $data['full_name'],
+                    'email'         => $email,
+                    'mobile_number' => $data['mobile_number'] ?? null,
+                    'password_hash' => Hash::make($data['password']),
+                    'status'        => 'ACTIVE',
+                ]);
+
+                $roleCode = config('admin.registration.role_code', 'SUPER_ADMIN');
+
+                $role = Role::query()->firstOrCreate(
+                    ['role_code' => $roleCode],
+                    [
+                        'role_name'   => 'Super Administrator',
+                        'description' => 'Full system administration',
+                    ]
+                );
+
+                DB::table('admin_user_roles')->insert([
+                    'admin_user_id' => $admin->id,
+                    'role_id'       => $role->id,
+                ]);
+
+                $missing = DB::table('permissions')
+                    ->whereNotIn('id', function ($query) use ($role) {
+                        $query->select('permission_id')
+                            ->from('role_permissions')
+                            ->where('role_id', $role->id);
+                    })
+                    ->pluck('id')
+                    ->map(fn ($permissionId) => [
+                        'role_id'       => $role->id,
+                        'permission_id' => $permissionId,
+                    ])
+                    ->all();
+
+                if ($missing) {
+                    DB::table('role_permissions')->insert($missing);
+                }
+
+                return $admin->load('roles:id,role_name,role_code');
+            });
+        });
+    }
+
+    /**
+     * Next free admin code, e.g. ADM0001.
+     */
+    protected function nextAdminCode(): string
+    {
+        $next = ((int) AdminUser::withTrashed()->max('id')) + 1;
+
+        do {
+            $code = 'ADM' . str_pad((string) $next++, 4, '0', STR_PAD_LEFT);
+        } while (AdminUser::withTrashed()->where('admin_code', $code)->exists());
+
+        return $code;
     }
 
     /**

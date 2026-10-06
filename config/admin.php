@@ -14,6 +14,15 @@ return [
         'refresh_token_ability' => 'admin:refresh',
     ],
 
+    'registration' => [
+        // Optional. When set, first-admin registration must send this value
+        // as `setup_key`. Strongly recommended for any internet-facing deploy.
+        'setup_key' => env('ADMIN_SETUP_KEY'),
+
+        // Role granted to the first administrator.
+        'role_code' => 'SUPER_ADMIN',
+    ],
+
     'password_reset' => [
         // Minutes a reset link stays valid.
         'ttl'          => (int) env('ADMIN_PASSWORD_RESET_TTL', 60),

@@ -41,6 +41,11 @@ class AppServiceProvider extends ServiceProvider
                 );
         });
 
+        // Limits setup-key guessing on first-admin registration.
+        RateLimiter::for('admin-register', function (Request $request) {
+            return Limit::perMinute(5)->by((string) $request->ip());
+        });
+
         // Limits current-password guessing from a stolen access token.
         RateLimiter::for('admin-change-password', function (Request $request) {
             return Limit::perMinute(5)->by(
