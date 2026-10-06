@@ -315,7 +315,56 @@ Behaviour worth knowing:
 
 **429** — route throttle exceeded.
 
-> **Not built yet:** the endpoint that consumes the emailed token and sets the new password (`/admin/auth/reset-password`). Until it exists, the link's landing page has nothing to submit to.
+The emailed link is completed with [`POST /admin/auth/reset-password`](#27-post-adminauthreset-password).
+
+### 2.7 `POST /admin/auth/reset-password`
+
+Endpoint ID `ADM-AUTH-007` · Next.js screen `/reset-password` · **Public** (no bearer token — the reset token is the credential).
+
+Rate limit: 10 requests/min per IP.
+
+Sets a new password using the token from the email sent by §2.6. Read `token` and `email` from the link's query string on the `/reset-password` page and submit them together with the new password.
+
+**Body**
+
+| Field | Type | Rules |
+|-------|------|-------|
+| `email` | string | required, valid email, max 150 (trimmed + lower-cased server-side) |
+| `token` | string | required, max 255 (trimmed) |
+| `password` | string | required, 8–255 chars (**not** trimmed) |
+| `password_confirmation` | string | required, must equal `password` |
+
+**200**
+
+```json
+{
+  "success": true,
+  "message": "Password has been reset successfully. Please log in with your new password.",
+  "data": null
+}
+```
+
+On success the server also:
+
+- consumes the token (**single use**) and voids any other outstanding reset links for that admin;
+- **revokes every session** (all access + refresh tokens on all devices) — the admin must log in again;
+- clears any failed-login lockout, so the new password works immediately.
+
+No tokens are returned: redirect to the login page with a success notice.
+
+**422 messages**
+
+| Field | Message | Cause |
+|-------|---------|-------|
+| `token` | `Invalid or expired password reset token.` | unknown, already used, expired, replaced by a newer link, email doesn't match the token, or the account is locked/inactive/deleted. **All of these are deliberately indistinguishable** |
+| `token` | `Password reset token is required.` / `Invalid password reset token format.` | missing/blank, or not a string / over 255 chars |
+| `email` | `Email address is required.` / `Please enter a valid email address.` / `Email address may not exceed 150 characters.` | |
+| `password` | `Password is required.` / `Password must be at least 8 characters.` / `Password may not exceed 255 characters.` | |
+| `password` | `Password confirmation does not match.` | `password_confirmation` missing or different |
+
+A validation failure (e.g. weak password) does **not** consume the token, so the user can correct the form and resubmit. For `Invalid or expired password reset token.`, send the user back to `/forgot-password` to request a new link.
+
+**429** — route throttle exceeded.
 
 ---
 
@@ -471,6 +520,14 @@ export const adminForgotPassword = (email: string) =>
   api<ApiSuccess<null>>('/admin/auth/forgot-password', {
     method: 'POST',
     body: JSON.stringify({ email }),
+  });
+
+export const adminResetPassword = (p: {
+  email: string; token: string; password: string; password_confirmation: string;
+}) =>
+  api<ApiSuccess<null>>('/admin/auth/reset-password', {
+    method: 'POST',
+    body: JSON.stringify(p),
   });
 
 export const adminMe = (token: string) =>

@@ -52,6 +52,12 @@ Route::prefix('v1/admin')
         )->middleware('throttle:admin-forgot-password')
             ->name('admin.auth.forgot-password');
 
+        Route::post(
+            '/auth/reset-password',
+            [AdminAuthController::class, 'resetPassword']
+        )->middleware('throttle:admin-reset-password')
+            ->name('admin.auth.reset-password');
+
         Route::get(
             '/auth/me',
             [AdminAuthController::class, 'me']

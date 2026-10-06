@@ -3,6 +3,7 @@ namespace App\Services\Admin;
 
 use App\Mail\AdminPasswordResetMail;
 use App\Models\AdminUser;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Mail;
@@ -495,6 +496,73 @@ class AdminAuthService
         Mail::to($admin->email)->send(
             new AdminPasswordResetMail($admin, $resetUrl, $ttl)
         );
+    }
+
+    /**
+     * Complete a password reset using the emailed token.
+     *
+     * Every failure mode (unknown email, wrong token, used, expired,
+     * inactive account) yields the same message so nothing is leaked.
+     *
+     * On success the token is consumed, all other reset links are
+     * invalidated and every existing admin session is revoked.
+     *
+     * @throws ValidationException
+     */
+    public function resetPassword(
+        string $email,
+        string $token,
+        string $password
+    ): void {
+        $email = strtolower(trim($email));
+
+        $record = DB::table('admin_password_resets')
+            ->where('token_hash', hash('sha256', $token))
+            ->first();
+
+        $admin = $record
+            ? AdminUser::query()
+                ->whereKey($record->admin_user_id)
+                ->where('email', $email)
+                ->whereNull('deleted_at')
+                ->first()
+            : null;
+
+        if (
+            ! $record ||
+            ! $admin ||
+            $record->used_at !== null ||
+            Carbon::parse($record->expires_at)->isPast() ||
+            ! $admin->isActive()
+        ) {
+            throw ValidationException::withMessages([
+                'token' => [
+                    'Invalid or expired password reset token.',
+                ],
+            ]);
+        }
+
+        DB::transaction(function () use ($admin, $record, $password) {
+            $admin->forceFill([
+                'password_hash' => Hash::make($password),
+            ])->save();
+
+            DB::table('admin_password_resets')
+                ->where('id', $record->id)
+                ->update(['used_at' => now()]);
+
+            // Any other outstanding links for this admin are now void.
+            DB::table('admin_password_resets')
+                ->where('admin_user_id', $admin->id)
+                ->whereNull('used_at')
+                ->delete();
+
+            // Force re-login everywhere with the new password.
+            $admin->tokens()->delete();
+        });
+
+        // Clear failed-login lockout so the admin can sign in right away.
+        RateLimiter::clear('admin-login:' . $email);
     }
 
     /**
