@@ -1,12 +1,15 @@
 <?php
+
 namespace App\Http\Controllers\Api\V1\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\AdminLoginRequest;
 use App\Http\Requests\Admin\AdminRefreshTokenRequest;
 use App\Http\Resources\Admin\AdminAuthResource;
+use App\Models\AdminUser;
 use App\Services\Admin\AdminAuthService;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
 use Throwable;
 
@@ -56,12 +59,10 @@ class AdminAuthController extends Controller
                     'token_type'               => 'Bearer',
 
                     'access_token_expires_at'  =>
-                        $result['access_token_expires_at']
-                            ?->toISOString(),
+                        $result['access_token_expires_at']?->toISOString(),
 
                     'refresh_token_expires_at' =>
-                        $result['refresh_token_expires_at']
-                            ?->toISOString(),
+                        $result['refresh_token_expires_at']?->toISOString(),
                 ],
             ], 200);
 
@@ -117,12 +118,10 @@ class AdminAuthController extends Controller
                     'token_type'               => 'Bearer',
 
                     'access_token_expires_at'  =>
-                        $result['access_token_expires_at']
-                            ?->toISOString(),
+                        $result['access_token_expires_at']?->toISOString(),
 
                     'refresh_token_expires_at' =>
-                        $result['refresh_token_expires_at']
-                            ?->toISOString(),
+                        $result['refresh_token_expires_at']?->toISOString(),
                 ],
             ], 200);
 
@@ -138,6 +137,44 @@ class AdminAuthController extends Controller
                 'success' => false,
                 'message' =>
                 'Unable to refresh admin access token.',
+                'data'    => null,
+            ], 500);
+        }
+    }
+
+    /**
+     * Logout Current Admin Session
+     */
+    public function logout(Request $request): JsonResponse
+    {
+        try {
+            /**
+             * Ensure this endpoint is being used
+             * with an authenticated AdminUser.
+             */
+            $admin = $request->user();
+
+            if (! $admin instanceof AdminUser) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Unauthenticated admin session.',
+                    'data'    => null,
+                ], 401);
+            }
+
+            $this->adminAuthService->logoutCurrentSession();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Admin logout successful.',
+                'data'    => null,
+            ], 200);
+        } catch (Throwable $exception) {
+            report($exception);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Unable to logout admin session.',
                 'data'    => null,
             ], 500);
         }

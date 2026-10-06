@@ -45,6 +45,12 @@ Route::prefix('v1/admin')
             [AdminAuthController::class, 'refresh']
         )->middleware('throttle:admin-refresh')
             ->name('admin.auth.refresh');
+
+        Route::post(
+            '/auth/logout',
+            [AdminAuthController::class, 'logout']
+        )->middleware('auth:sanctum')
+            ->name('admin.auth.logout');
     });
 
 Route::prefix('v1/admin')

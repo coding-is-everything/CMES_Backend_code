@@ -398,4 +398,38 @@ class AdminAuthService
 
         return implode(':', $parts) ?: 'admin-web';
     }
+
+    /**
+     * Logout the current admin session.
+     *
+     * Revokes:
+     * 1. Current access token
+     * 2. Matching refresh token for the same session
+     *
+     * Other admin, sessions remain active.
+     */
+    public function logoutCurrentSession(): void
+    {
+        $currentToken = request()->user()?->currentAccessToken();
+
+        if (! $currentToken) {
+            return;
+        }
+
+        $sessionId = $this->extractSessionId($currentToken->name);
+
+        DB::transaction(function () use ($currentToken, $sessionId) {
+            //Revoke current access token.
+            $currentToken->delete();
+
+            //If the token follows our admin session naming convention,
+            //Revoke the corresponding refresh token as well.
+            if ($sessionId) {
+                PersonalAccessToken::query()
+                    ->where('tokenable_type', AdminUser::class)
+                    ->where('name', 'like', 'admin-refresh:%' . $sessionId)
+                    ->delete();
+            }
+        });
+    }
 }
