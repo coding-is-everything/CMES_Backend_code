@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\AdminForgotPasswordRequest;
 use App\Http\Requests\Admin\AdminLoginRequest;
 use App\Http\Requests\Admin\AdminRefreshTokenRequest;
+use App\Http\Requests\Admin\AdminResetPasswordRequest;
 use App\Http\Resources\Admin\AdminAuthResource;
 use App\Models\AdminUser;
 use App\Services\Admin\AdminAuthService;
@@ -169,6 +170,39 @@ class AdminAuthController extends Controller
             'message' => 'If the email address belongs to an administrator account, a password reset link has been sent.',
             'data'    => null,
         ], 200);
+    }
+
+    /**
+     * ADM-AUTH-007
+     *
+     * Set a new password using the token from the reset email.
+     */
+    public function resetPassword(
+        AdminResetPasswordRequest $request
+    ): JsonResponse {
+        try {
+            $this->adminAuthService->resetPassword(
+                email: $request->string('email')->toString(),
+                token: $request->string('token')->toString(),
+                password: $request->input('password')
+            );
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Password has been reset successfully. Please log in with your new password.',
+                'data'    => null,
+            ], 200);
+        } catch (ValidationException $exception) {
+            throw $exception;
+        } catch (Throwable $exception) {
+            report($exception);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Unable to reset admin password.',
+                'data'    => null,
+            ], 500);
+        }
     }
 
     /**

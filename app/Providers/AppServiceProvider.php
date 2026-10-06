@@ -41,6 +41,11 @@ class AppServiceProvider extends ServiceProvider
                 );
         });
 
+        // Limits token guessing; keyed by IP because the token itself is the secret.
+        RateLimiter::for('admin-reset-password', function (Request $request) {
+            return Limit::perMinute(10)->by((string) $request->ip());
+        });
+
         RateLimiter::for('admin-refresh', function (Request $request) {
             return Limit::perMinute(20)
             ->by(
