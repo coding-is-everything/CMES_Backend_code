@@ -7,10 +7,12 @@ use App\Http\Requests\Admin\AdminChangePasswordRequest;
 use App\Http\Requests\Admin\AdminForgotPasswordRequest;
 use App\Http\Requests\Admin\AdminLoginRequest;
 use App\Http\Requests\Admin\AdminRefreshTokenRequest;
+use App\Http\Requests\Admin\AdminRegisterRequest;
 use App\Http\Requests\Admin\AdminResetPasswordRequest;
 use App\Http\Resources\Admin\AdminAuthResource;
 use App\Models\AdminUser;
 use App\Services\Admin\AdminAuthService;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
@@ -352,6 +354,50 @@ class AdminAuthController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Unable to revoke admin session.',
+                'data'    => null,
+            ], 500);
+        }
+    }
+
+    /**
+     * ADM-AUTH-011
+     *
+     * Register the first administrator (initial system setup only).
+     */
+    public function register(AdminRegisterRequest $request): JsonResponse
+    {
+        try {
+            $admin = $this->adminAuthService->registerFirstAdmin(
+                data: $request->safe()->only([
+                    'full_name',
+                    'email',
+                    'mobile_number',
+                    'password',
+                ]),
+                setupKey: $request->input('setup_key')
+            );
+
+            return response()->json([
+                'success' => true,
+                'message' => 'First administrator registered successfully. Please log in.',
+                'data'    => [
+                    'admin' => new AdminAuthResource($admin),
+                ],
+            ], 201);
+        } catch (AuthorizationException $exception) {
+            return response()->json([
+                'success' => false,
+                'message' => $exception->getMessage(),
+                'data'    => null,
+            ], 403);
+        } catch (ValidationException $exception) {
+            throw $exception;
+        } catch (Throwable $exception) {
+            report($exception);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Unable to register administrator.',
                 'data'    => null,
             ], 500);
         }

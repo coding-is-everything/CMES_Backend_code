@@ -515,6 +515,65 @@ Revokes one of the signed-in admin's own sessions — both its access and refres
 
 Frontend: after a 200 with `revoked_current: false`, remove that row from the list (or re-fetch §2.9). On a 404, the session is already gone — just refresh the list.
 
+### 2.11 `POST /admin/auth/register`
+
+Endpoint ID `ADM-AUTH-011` · **Public**, one-time **initial setup** only.
+
+Rate limit: 5 requests/min per IP.
+
+Creates the **first administrator** of a fresh system. It is open only while **no administrator exists**; once one does, every call returns 403. It cannot be used to add further admins — those must be created by a signed-in admin (not built yet).
+
+The new admin is `ACTIVE`, gets an auto-generated `admin_code` (`ADM0001`, …), the `SUPER_ADMIN` role, and every permission currently in the `permissions` table. **No tokens are returned** — send the user to the normal login (§2.1).
+
+If the server has `ADMIN_SETUP_KEY` set, the request must include the matching `setup_key`; otherwise the key is not needed. Set it on any internet-facing deployment, or whoever calls this first becomes super admin.
+
+**Body**
+
+| Field | Type | Rules |
+|-------|------|-------|
+| `full_name` | string | required, 2–150 chars (trimmed) |
+| `email` | string | required, valid email, max 150 (trimmed + lower-cased). Must not belong to any previous admin, including deleted ones |
+| `mobile_number` | string \| null | optional, digits only, 6–20 |
+| `password` | string | required, 8–255 chars (**not** trimmed) |
+| `password_confirmation` | string | required, must equal `password` |
+| `setup_key` | string \| null | required **only** when the server has a setup key configured |
+
+**201**
+
+```json
+{
+  "success": true,
+  "message": "First administrator registered successfully. Please log in.",
+  "data": {
+    "admin": {
+      "id": 1, "admin_code": "ADM0001", "full_name": "First Admin",
+      "email": "first@example.com", "mobile_number": "9876543210",
+      "status": "ACTIVE", "last_login_at": null,
+      "roles": [{ "id": 1, "role_code": "SUPER_ADMIN", "role_name": "Super Administrator" }]
+    }
+  }
+}
+```
+
+**403** — `{ "success": false, "message": "Administrator registration is not available.", "data": null }`
+
+Returned when an administrator already exists (active, locked or inactive — only *deleted* ones don't count) **or** the setup key is missing/wrong. The two cases are deliberately identical, and this check runs before email-uniqueness is examined, so a closed endpoint can't be used to find out which emails are registered.
+
+**422 messages**
+
+| Field | Message | Cause |
+|-------|---------|-------|
+| `full_name` | `Full name is required.` / `Full name must be at least 2 characters.` / `Full name may not exceed 150 characters.` / `Full name must be a string.` | |
+| `email` | `Email address is required.` / `Please enter a valid email address.` / `Email address may not exceed 150 characters.` | |
+| `email` | `Email address is already registered.` | belonged to a deleted admin (only reachable when registration is open) |
+| `mobile_number` | `Mobile number must contain only digits (6 to 20).` | |
+| `password` | `Password is required.` / `Password must be at least 8 characters.` / `Password may not exceed 255 characters.` / `Password confirmation does not match.` | |
+| `setup_key` | `Invalid setup key format.` | not a string / over 255 chars |
+
+**429** — route throttle exceeded.
+
+Frontend: show a first-run "Create super admin" screen only when you know setup is needed (e.g. a failed login with no admins, or a deploy-time flag). On 403, tell the user setup is already complete and link to login.
+
 ---
 
 ## 3. Admin users
@@ -696,6 +755,15 @@ export const adminRevokeSession = (token: string, sessionId: string) =>
     `/admin/auth/sessions/${sessionId}`,
     { method: 'DELETE', token },
   );
+
+export const adminRegisterFirst = (p: {
+  full_name: string; email: string; mobile_number?: string | null;
+  password: string; password_confirmation: string; setup_key?: string | null;
+}) =>
+  api<ApiSuccess<{ admin: AdminAuthUser }>>('/admin/auth/register', {
+    method: 'POST',
+    body: JSON.stringify(p),
+  });
 
 export const adminMe = (token: string) =>
   api<ApiSuccess<AdminMe>>('/admin/auth/me', { token });
