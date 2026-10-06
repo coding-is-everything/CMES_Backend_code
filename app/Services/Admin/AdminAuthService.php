@@ -566,6 +566,165 @@ class AdminAuthService
     }
 
     /**
+     * List the admin's active login sessions (one per device).
+     *
+     * A session is the access + refresh token pair that share the UUID at
+     * the end of their names. Sessions whose tokens have all expired, and
+     * tokens not following the admin naming convention, are left out.
+     *
+     * @return array<int, array<string, mixed>> current session first, then
+     *                                          most recently used.
+     */
+    public function listSessions(AdminUser $admin): array
+    {
+        $currentToken     = $admin->currentAccessToken();
+        $currentSessionId = $currentToken
+            ? $this->extractSessionId($currentToken->name)
+            : null;
+
+        $sessions = [];
+
+        foreach ($admin->tokens()->get() as $token) {
+            $isAccess  = str_starts_with($token->name, 'admin-access:');
+            $isRefresh = str_starts_with($token->name, 'admin-refresh:');
+
+            $sessionId = $this->extractSessionId($token->name);
+
+            if ((! $isAccess && ! $isRefresh) || ! $sessionId) {
+                continue;
+            }
+
+            $sessions[$sessionId] ??= [
+                'session_id'               => $sessionId,
+                'device_name'              => $this->extractDeviceName($token->name),
+                'is_current'               => $sessionId === $currentSessionId,
+                'issued_at'                => $token->created_at,
+                'last_used_at'             => null,
+                'access_token_expires_at'  => null,
+                'refresh_token_expires_at' => null,
+            ];
+
+            $session = &$sessions[$sessionId];
+
+            if ($token->created_at && $token->created_at->gt($session['issued_at'])) {
+                $session['issued_at'] = $token->created_at;
+            }
+
+            if (
+                $token->last_used_at &&
+                (! $session['last_used_at'] || $token->last_used_at->gt($session['last_used_at']))
+            ) {
+                $session['last_used_at'] = $token->last_used_at;
+            }
+
+            $session[$isAccess ? 'access_token_expires_at' : 'refresh_token_expires_at']
+                = $token->expires_at;
+
+            unset($session);
+        }
+
+        $active = array_filter($sessions, $this->isSessionActive(...));
+
+        usort($active, $this->compareSessions(...));
+
+        return array_map(fn (array $session) => [
+            'session_id'               => $session['session_id'],
+            'device_name'              => $session['device_name'],
+            'is_current'               => $session['is_current'],
+            'issued_at'                => $session['issued_at']?->toISOString(),
+            'last_used_at'             => $session['last_used_at']?->toISOString(),
+            'access_token_expires_at'  => $session['access_token_expires_at']?->toISOString(),
+            'refresh_token_expires_at' => $session['refresh_token_expires_at']?->toISOString(),
+        ], $active);
+    }
+
+    /**
+     * A session is active while at least one of its tokens is unexpired.
+     *
+     * @param array<string, mixed> $session
+     */
+    protected function isSessionActive(array $session): bool
+    {
+        foreach (['access_token_expires_at', 'refresh_token_expires_at'] as $key) {
+            if ($session[$key]?->isFuture()) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Current session first, then most recently used, then most recently issued.
+     *
+     * @param array<string, mixed> $a
+     * @param array<string, mixed> $b
+     */
+    protected function compareSessions(array $a, array $b): int
+    {
+        if ($a['is_current'] !== $b['is_current']) {
+            return $a['is_current'] ? -1 : 1;
+        }
+
+        $aUsed = $a['last_used_at']?->getTimestamp() ?? 0;
+        $bUsed = $b['last_used_at']?->getTimestamp() ?? 0;
+
+        return $bUsed <=> $aUsed
+            ?: $b['issued_at']->getTimestamp() <=> $a['issued_at']->getTimestamp();
+    }
+
+    /**
+     * Change the password of a signed-in admin.
+     *
+     * The session making the call stays signed in; every other session
+     * (other devices) is revoked, as are outstanding reset links.
+     *
+     * @throws ValidationException when the current password is wrong
+     */
+    public function changePassword(
+        AdminUser $admin,
+        string $currentPassword,
+        string $newPassword
+    ): void {
+        if (! Hash::check($currentPassword, $admin->password_hash)) {
+            throw ValidationException::withMessages([
+                'current_password' => [
+                    'Current password is incorrect.',
+                ],
+            ]);
+        }
+
+        $currentToken = $admin->currentAccessToken();
+        $sessionId    = $currentToken
+            ? $this->extractSessionId($currentToken->name)
+            : null;
+
+        DB::transaction(function () use ($admin, $newPassword, $currentToken, $sessionId) {
+            $admin->forceFill([
+                'password_hash' => Hash::make($newPassword),
+            ])->save();
+
+            $others = $admin->tokens();
+
+            if ($sessionId) {
+                // Keep this device's access + refresh pair.
+                $others->where('name', 'not like', '%:' . $sessionId);
+            } elseif ($currentToken instanceof PersonalAccessToken) {
+                $others->whereKeyNot($currentToken->getKey());
+            }
+
+            $others->delete();
+
+            DB::table('admin_password_resets')
+                ->where('admin_user_id', $admin->id)
+                ->whereNull('used_at')
+                ->delete();
+        });
+
+        RateLimiter::clear('admin-login:' . strtolower($admin->email));
+    }
+
+    /**
      * Logout every session of the admin.
      *
      * Revokes all access and refresh tokens on every device.

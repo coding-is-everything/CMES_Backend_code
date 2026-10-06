@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Admin\AdminChangePasswordRequest;
 use App\Http\Requests\Admin\AdminForgotPasswordRequest;
 use App\Http\Requests\Admin\AdminLoginRequest;
 use App\Http\Requests\Admin\AdminRefreshTokenRequest;
@@ -18,6 +19,8 @@ use Throwable;
 class AdminAuthController extends Controller
 {
     private const UNAUTHENTICATED_MESSAGE = 'Unauthenticated admin session.';
+
+    private const INACTIVE_MESSAGE = 'Administrator account is not active.';
 
     public function __construct(
         protected AdminAuthService $adminAuthService
@@ -206,6 +209,99 @@ class AdminAuthController extends Controller
     }
 
     /**
+     * ADM-AUTH-008
+     *
+     * Change the password of the signed-in admin.
+     */
+    public function changePassword(
+        AdminChangePasswordRequest $request
+    ): JsonResponse {
+        try {
+            $admin = $request->user();
+
+            if (! $admin instanceof AdminUser) {
+                return response()->json([
+                    'success' => false,
+                    'message' => self::UNAUTHENTICATED_MESSAGE,
+                    'data'    => null,
+                ], 401);
+            }
+
+            if (! $admin->isActive()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => self::INACTIVE_MESSAGE,
+                    'data'    => null,
+                ], 403);
+            }
+
+            $this->adminAuthService->changePassword(
+                admin: $admin,
+                currentPassword: $request->input('current_password'),
+                newPassword: $request->input('password')
+            );
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Password changed successfully. Other devices have been signed out.',
+                'data'    => null,
+            ], 200);
+        } catch (ValidationException $exception) {
+            throw $exception;
+        } catch (Throwable $exception) {
+            report($exception);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Unable to change admin password.',
+                'data'    => null,
+            ], 500);
+        }
+    }
+
+    /**
+     * ADM-AUTH-009
+     *
+     * List the signed-in admin's active sessions.
+     */
+    public function sessions(Request $request): JsonResponse
+    {
+        try {
+            $admin = $request->user();
+
+            if (! $admin instanceof AdminUser) {
+                return response()->json([
+                    'success' => false,
+                    'message' => self::UNAUTHENTICATED_MESSAGE,
+                    'data'    => null,
+                ], 401);
+            }
+
+            if (! $admin->isActive()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => self::INACTIVE_MESSAGE,
+                    'data'    => null,
+                ], 403);
+            }
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Admin sessions retrieved successfully.',
+                'data'    => $this->adminAuthService->listSessions($admin),
+            ], 200);
+        } catch (Throwable $exception) {
+            report($exception);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Unable to retrieve admin sessions.',
+                'data'    => null,
+            ], 500);
+        }
+    }
+
+    /**
      * ADM-AUTH-005
      *
      * Current admin with roles and effective permissions.
@@ -226,7 +322,7 @@ class AdminAuthController extends Controller
             if (! $admin->isActive()) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Administrator account is not active.',
+                    'message' => self::INACTIVE_MESSAGE,
                     'data'    => null,
                 ], 403);
             }
