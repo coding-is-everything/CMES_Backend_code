@@ -432,4 +432,16 @@ class AdminAuthService
             }
         });
     }
+
+    /**
+     * Logout every session of the admin.
+     *
+     * Revokes all access and refresh tokens on every device.
+     *
+     * @return int Number of tokens revoked.
+     */
+    public function logoutAllSessions(AdminUser $admin): int
+    {
+        return $admin->tokens()->delete();
+    }
 }

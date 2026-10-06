@@ -187,6 +187,39 @@ Frontend: after a 200 **or** a 401, discard both stored tokens and redirect to l
 
 > The old `/api/auth/logout` path (outside `/v1/admin`) has been removed.
 
+### 2.4 `POST /admin/auth/logout-all`
+
+Endpoint ID `ADM-AUTH-004` · Next.js screen `/security/sessions` · Permission slug `auth.logout_all`.
+
+Requires `Authorization: Bearer <access_token>`. No request body.
+
+Revokes **every** session of the authenticated admin — all access and refresh tokens on all devices, including the one making the call. Other admins are not affected.
+
+**200**
+
+```json
+{
+  "success": true,
+  "message": "All admin sessions revoked successfully.",
+  "data": { "revoked_tokens": 6 }
+}
+```
+
+`revoked_tokens` is the number of tokens deleted (two per active device: one access, one refresh).
+
+**Errors**
+
+| Code | Message | Cause |
+|------|---------|-------|
+| 401 | `Unauthenticated.` | missing, invalid, expired or already-revoked access token (Laravel default body, no `success` envelope) |
+| 401 | `Unauthenticated admin session.` | token belongs to a non-admin user |
+| 405 | — | any method other than `POST` |
+| 500 | `Unable to revoke admin sessions.` | server error |
+
+Frontend: on 200, clear stored tokens and redirect to login. Any other device will get a 401 on its next call and a 422 if it tries to refresh.
+
+> The `auth.logout_all` slug is informational for now: access is granted to any authenticated admin and no permission check is enforced.
+
 ---
 
 ## 3. Admin users
@@ -336,6 +369,9 @@ export const adminRefresh = (refresh_token: string) =>
 
 export const adminLogout = (token: string) =>
   api<ApiSuccess<null>>('/admin/auth/logout', { method: 'POST', token });
+
+export const adminLogoutAll = (token: string) =>
+  api<ApiSuccess<{ revoked_tokens: number }>>('/admin/auth/logout-all', { method: 'POST', token });
 ```
 
 Refresh strategy:

@@ -179,4 +179,42 @@ class AdminAuthController extends Controller
             ], 500);
         }
     }
+
+    /**
+     * ADM-AUTH-004
+     *
+     * Logout the admin from every device.
+     */
+    public function logoutAll(Request $request): JsonResponse
+    {
+        try {
+            $admin = $request->user();
+
+            if (! $admin instanceof AdminUser) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Unauthenticated admin session.',
+                    'data'    => null,
+                ], 401);
+            }
+
+            $revoked = $this->adminAuthService->logoutAllSessions($admin);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'All admin sessions revoked successfully.',
+                'data'    => [
+                    'revoked_tokens' => $revoked,
+                ],
+            ], 200);
+        } catch (Throwable $exception) {
+            report($exception);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Unable to revoke admin sessions.',
+                'data'    => null,
+            ], 500);
+        }
+    }
 }

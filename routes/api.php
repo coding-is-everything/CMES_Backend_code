@@ -51,6 +51,12 @@ Route::prefix('v1/admin')
             [AdminAuthController::class, 'logout']
         )->middleware('auth:sanctum')
             ->name('admin.auth.logout');
+
+        Route::post(
+            '/auth/logout-all',
+            [AdminAuthController::class, 'logoutAll']
+        )->middleware('auth:sanctum')
+            ->name('admin.auth.logout-all');
     });
 
 Route::prefix('v1/admin')
